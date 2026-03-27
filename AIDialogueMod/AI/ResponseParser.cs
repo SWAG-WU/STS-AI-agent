@@ -1,5 +1,6 @@
 using System;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AIDialogueMod.AI;
 
@@ -11,22 +12,55 @@ public static class ResponseParser
         PropertyNameCaseInsensitive = true,
     };
 
+    // Strip markdown code fences: ```json ... ``` or ``` ... ```
+    private static readonly Regex CodeFenceRegex = new(
+        @"```(?:json)?\s*([\s\S]*?)\s*```",
+        RegexOptions.Compiled | RegexOptions.IgnoreCase);
+
     public static AIResponse Parse(string raw)
     {
         if (string.IsNullOrWhiteSpace(raw))
             return new AIResponse { Dialogue = "" };
 
-        var result = TryDeserialize(raw.Trim());
+        // Step 1: Strip markdown code fences if present
+        string cleaned = StripCodeFences(raw);
+
+        // Step 2: Try direct JSON parse
+        var result = TryDeserialize(cleaned.Trim());
         if (result != null) return result;
 
-        string? extracted = ExtractJsonObject(raw);
+        // Step 3: Try extracting JSON object from text
+        string? extracted = ExtractJsonObject(cleaned);
         if (extracted != null)
         {
             result = TryDeserialize(extracted);
             if (result != null) return result;
         }
 
+        // Step 4: Try extracting just the dialogue field via regex
+        var dialogueMatch = Regex.Match(cleaned, @"""dialogue""\s*:\s*""((?:[^""\\]|\\.)*)""");
+        if (dialogueMatch.Success)
+        {
+            return new AIResponse
+            {
+                Dialogue = UnescapeJsonString(dialogueMatch.Groups[1].Value),
+                Emotion = "neutral"
+            };
+        }
+
+        // Step 5: Fallback - show raw text as dialogue (should rarely happen now)
         return new AIResponse { Dialogue = raw.Trim(), Emotion = "neutral" };
+    }
+
+    private static string StripCodeFences(string text)
+    {
+        var match = CodeFenceRegex.Match(text);
+        return match.Success ? match.Groups[1].Value : text;
+    }
+
+    private static string UnescapeJsonString(string s)
+    {
+        return s.Replace("\\\"", "\"").Replace("\\n", "\n").Replace("\\\\", "\\");
     }
 
     private static AIResponse? TryDeserialize(string json)

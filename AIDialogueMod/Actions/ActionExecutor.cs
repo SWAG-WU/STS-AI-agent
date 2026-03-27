@@ -1,6 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Commands;
+using MegaCrit.Sts2.Core.Entities.Creatures;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Logging;
+using MegaCrit.Sts2.Core.Models.Powers;
 
 namespace AIDialogueMod.Actions;
 
@@ -32,6 +39,34 @@ public class ActionExecutor
         return notifications;
     }
 
+    private Player? GetPlayer()
+    {
+        try
+        {
+            var combatManager = CombatManager.Instance;
+            if (combatManager == null) return null;
+            var state = combatManager.DebugOnlyGetState();
+            if (state == null) return null;
+            var playerCreatures = state.GetCreaturesOnSide(CombatSide.Player);
+            return playerCreatures?.FirstOrDefault()?.Player;
+        }
+        catch { return null; }
+    }
+
+    private Creature? GetMainEnemy()
+    {
+        try
+        {
+            var combatManager = CombatManager.Instance;
+            if (combatManager == null) return null;
+            var state = combatManager.DebugOnlyGetState();
+            if (state == null) return null;
+            var enemies = state.GetCreaturesOnSide(CombatSide.Enemy);
+            return enemies?.FirstOrDefault();
+        }
+        catch { return null; }
+    }
+
     private string? ExecuteSingle(GameAction action, bool isChinese)
     {
         var type = action.ParseType();
@@ -39,10 +74,10 @@ public class ActionExecutor
 
         return type.Value switch
         {
-            ActionType.ModifyPlayerHp => FormatHp(action, isChinese),
-            ActionType.ModifyPlayerGold => FormatGold(action, isChinese),
-            ActionType.ModifyEnemyStrength => FormatEnemyStrength(action, isChinese),
-            ActionType.ModifyEnemyHp => FormatEnemyHp(action, isChinese),
+            ActionType.ModifyPlayerHp => ExecuteModifyPlayerHp(action, isChinese),
+            ActionType.ModifyPlayerGold => ExecuteModifyPlayerGold(action, isChinese),
+            ActionType.ModifyEnemyStrength => ExecuteModifyEnemyStrength(action, isChinese),
+            ActionType.ModifyEnemyHp => ExecuteModifyEnemyHp(action, isChinese),
             ActionType.AddPlayerBuff => FormatBuff(action, true, true, isChinese),
             ActionType.AddPlayerDebuff => FormatBuff(action, true, false, isChinese),
             ActionType.AddEnemyBuff => FormatBuff(action, false, true, isChinese),
@@ -59,33 +94,117 @@ public class ActionExecutor
         };
     }
 
-    private string FormatHp(GameAction a, bool zh)
+    private string ExecuteModifyPlayerHp(GameAction a, bool zh)
     {
-        Log.Warn($"[AIDialogueMod] ModifyPlayerHp: {a.Value}");
+        try
+        {
+            var player = GetPlayer();
+            if (player?.Creature != null)
+            {
+                if (a.Value > 0)
+                {
+                    _ = CreatureCmd.Heal(player.Creature, a.Value, true);
+                    Log.Warn($"[AIDialogueMod] Healed player for {a.Value} HP");
+                }
+                else if (a.Value < 0)
+                {
+                    int damage = -a.Value;
+                    // Clamp: don't kill the player
+                    int maxDamage = player.Creature.CurrentHp - 1;
+                    if (damage > maxDamage) damage = maxDamage;
+                    if (damage > 0)
+                    {
+                        player.Creature.LoseHpInternal(damage, default);
+                        Log.Warn($"[AIDialogueMod] Dealt {damage} damage to player");
+                    }
+                }
+            }
+        }
+        catch (Exception ex) { Log.Warn($"[AIDialogueMod] ModifyPlayerHp failed: {ex.Message}"); }
+
         return a.Value > 0
             ? (zh ? $"玩家恢复了 {a.Value} HP" : $"Player healed {a.Value} HP")
             : (zh ? $"玩家受到了 {-a.Value} 点伤害" : $"Player took {-a.Value} damage");
     }
 
-    private string FormatGold(GameAction a, bool zh)
+    private string ExecuteModifyPlayerGold(GameAction a, bool zh)
     {
-        Log.Warn($"[AIDialogueMod] ModifyPlayerGold: {a.Value}");
+        try
+        {
+            var player = GetPlayer();
+            if (player != null)
+            {
+                if (a.Value > 0)
+                {
+                    _ = PlayerCmd.GainGold(a.Value, player, false);
+                    Log.Warn($"[AIDialogueMod] Player gained {a.Value} gold");
+                }
+                else if (a.Value < 0)
+                {
+                    int loss = -a.Value;
+                    if (loss > player.Gold) loss = player.Gold; // Don't go negative
+                    if (loss > 0)
+                    {
+                        _ = PlayerCmd.LoseGold(loss, player, default);
+                        Log.Warn($"[AIDialogueMod] Player lost {loss} gold");
+                    }
+                }
+            }
+        }
+        catch (Exception ex) { Log.Warn($"[AIDialogueMod] ModifyPlayerGold failed: {ex.Message}"); }
+
         return a.Value > 0
             ? (zh ? $"获得了 {a.Value} 金币" : $"Gained {a.Value} gold")
             : (zh ? $"失去了 {-a.Value} 金币" : $"Lost {-a.Value} gold");
     }
 
-    private string FormatEnemyStrength(GameAction a, bool zh)
+    private string ExecuteModifyEnemyStrength(GameAction a, bool zh)
     {
-        Log.Warn($"[AIDialogueMod] ModifyEnemyStrength: {a.Value}");
+        try
+        {
+            var enemy = GetMainEnemy();
+            if (enemy != null)
+            {
+                // Apply StrengthPower to enemy
+                var strengthPower = new StrengthPower();
+                _ = PowerCmd.Apply<StrengthPower>(enemy, a.Value, enemy, null, false);
+                Log.Warn($"[AIDialogueMod] Enemy strength modified by {a.Value}");
+            }
+        }
+        catch (Exception ex) { Log.Warn($"[AIDialogueMod] ModifyEnemyStrength failed: {ex.Message}"); }
+
         return a.Value > 0
             ? (zh ? $"怪物攻击力 +{a.Value}" : $"Enemy strength +{a.Value}")
             : (zh ? $"怪物攻击力 {a.Value}" : $"Enemy strength {a.Value}");
     }
 
-    private string FormatEnemyHp(GameAction a, bool zh)
+    private string ExecuteModifyEnemyHp(GameAction a, bool zh)
     {
-        Log.Warn($"[AIDialogueMod] ModifyEnemyHp: {a.Value}");
+        try
+        {
+            var enemy = GetMainEnemy();
+            if (enemy != null)
+            {
+                if (a.Value > 0)
+                {
+                    _ = CreatureCmd.Heal(enemy, a.Value, true);
+                    Log.Warn($"[AIDialogueMod] Healed enemy for {a.Value} HP");
+                }
+                else if (a.Value < 0)
+                {
+                    int damage = -a.Value;
+                    int maxDamage = enemy.CurrentHp - 1;
+                    if (damage > maxDamage) damage = maxDamage;
+                    if (damage > 0)
+                    {
+                        enemy.LoseHpInternal(damage, default);
+                        Log.Warn($"[AIDialogueMod] Dealt {damage} damage to enemy");
+                    }
+                }
+            }
+        }
+        catch (Exception ex) { Log.Warn($"[AIDialogueMod] ModifyEnemyHp failed: {ex.Message}"); }
+
         return a.Value > 0
             ? (zh ? $"怪物恢复了 {a.Value} HP" : $"Enemy healed {a.Value} HP")
             : (zh ? $"怪物受到了 {-a.Value} 点伤害" : $"Enemy took {-a.Value} damage");
@@ -97,6 +216,9 @@ public class ActionExecutor
         string target = isPlayer ? (zh ? "玩家" : "Player") : (zh ? "怪物" : "Enemy");
         string effect = isBuff ? (zh ? "增益" : "buff") : (zh ? "减益" : "debuff");
         string dur = FormatDuration(a.Duration, zh);
+        // Note: Buff/debuff application requires specific PowerModel types which vary per buff.
+        // For now we log and show notification. Full implementation needs a buff registry.
+        Log.Warn($"[AIDialogueMod] {(isBuff ? "Buff" : "Debuff")} {id} x{a.Stacks} on {(isPlayer ? "player" : "enemy")}");
         return zh ? $"{target}获得{effect}：{id} x{a.Stacks}（{dur}）" : $"{target} gained {effect}: {id} x{a.Stacks} ({dur})";
     }
 
