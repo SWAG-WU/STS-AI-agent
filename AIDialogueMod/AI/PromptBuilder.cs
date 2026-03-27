@@ -106,22 +106,31 @@ public class PromptBuilder
     private static string GetActionListText()
     {
         var sb = new StringBuilder();
-        sb.AppendLine("   - modify_player_hp: value (±int)");
-        sb.AppendLine("   - modify_player_gold: value (±int)");
-        sb.AppendLine("   - modify_enemy_strength: value (±int)");
-        sb.AppendLine("   - modify_enemy_hp: value (±int)");
-        sb.AppendLine("   - add_player_buff: buff_id, stacks, duration (\"combat\"/\"permanent\"/\"turns:N\")");
-        sb.AppendLine("   - add_player_debuff: debuff_id, stacks, duration");
-        sb.AppendLine("   - add_enemy_buff: buff_id, stacks, duration");
-        sb.AppendLine("   - add_enemy_debuff: debuff_id, stacks, duration");
-        sb.AppendLine("   - give_card: card_id");
-        sb.AppendLine("   - destroy_card: card_id or \"random\"");
-        sb.AppendLine("   - steal_card: card_id or \"random\"");
-        sb.AppendLine("   - return_card: card_id");
-        sb.AppendLine("   - give_relic: relic_id");
-        sb.AppendLine("   - skip_event (only when end_conversation:true)");
-        sb.AppendLine("   - shop_discount: percentage (0-100)");
-        sb.AppendLine("   - no_action");
+        sb.AppendLine("   每个action都是一个JSON对象，type是必填字段。以下是所有可用的action类型和对应字段：");
+        sb.AppendLine();
+        sb.AppendLine("   {\"type\":\"modify_player_hp\",\"value\":5}        // 恢复玩家5HP，负数为扣血");
+        sb.AppendLine("   {\"type\":\"modify_player_gold\",\"value\":-99}    // 扣除玩家99金币，正数为给予");
+        sb.AppendLine("   {\"type\":\"modify_enemy_strength\",\"value\":3}   // 怪物(你自己)攻击力+3，负数为降低");
+        sb.AppendLine("   {\"type\":\"modify_enemy_hp\",\"value\":-10}       // 怪物(你自己)扣血10");
+        sb.AppendLine("   {\"type\":\"add_player_buff\",\"buff_id\":\"strength\",\"stacks\":2}    // 给玩家增益");
+        sb.AppendLine("   {\"type\":\"add_player_debuff\",\"debuff_id\":\"weak\",\"stacks\":3}    // 给玩家减益");
+        sb.AppendLine("   {\"type\":\"add_enemy_buff\",\"buff_id\":\"strength\",\"stacks\":5}     // 给自己增益");
+        sb.AppendLine("   {\"type\":\"add_enemy_debuff\",\"debuff_id\":\"vulnerable\",\"stacks\":2} // 给自己减益");
+        sb.AppendLine("   {\"type\":\"skip_event\"}         // 跳过事件(仅在end_conversation:true时)");
+        sb.AppendLine("   {\"type\":\"shop_discount\",\"percentage\":20}   // 商店折扣");
+        sb.AppendLine("   {\"type\":\"no_action\"}          // 本轮无效果");
+        sb.AppendLine();
+        sb.AppendLine("   可用的buff_id: strength(力量), dexterity(敏捷), artifact(人工制品), regen(再生),");
+        sb.AppendLine("     thorns(荆棘), vigor(活力), plating(甲板), intangible(无实体), barricade(壁垒),");
+        sb.AppendLine("     ritual(仪式), rage(愤怒), focus(集中), buffer(缓冲)");
+        sb.AppendLine("   可用的debuff_id: vulnerable(易伤), weak(虚弱), frail(脆弱), poison(中毒),");
+        sb.AppendLine("     constrict(缠绕), slow(减速), no_draw(禁止抽牌), no_block(禁止格挡),");
+        sb.AppendLine("     hex(诅咒), confused(混乱)");
+        sb.AppendLine();
+        sb.AppendLine("   重要：你说出的每个承诺/威胁都必须有对应的action！比如你说\"给你99金币\"，就必须有");
+        sb.AppendLine("   {\"type\":\"modify_player_gold\",\"value\":99}。你说\"让你尝尝我的厉害\"，就应该有");
+        sb.AppendLine("   {\"type\":\"modify_enemy_strength\",\"value\":3} 或 {\"type\":\"add_player_debuff\",\"debuff_id\":\"weak\",\"stacks\":2}。");
+        sb.AppendLine("   不要只说话不做事！");
         return sb.ToString();
     }
 }
