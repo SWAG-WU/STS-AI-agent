@@ -1,6 +1,9 @@
 using System;
+using System.Linq;
 using Godot;
 using HarmonyLib;
+using MegaCrit.Sts2.Core.Combat;
+using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Nodes.Rooms;
 using AIDialogueMod.Actions;
@@ -10,9 +13,6 @@ using AIDialogueMod.UI;
 
 namespace AIDialogueMod.Patches;
 
-/// <summary>
-/// Patches NMerchantRoom._Ready to inject a "Talk" button in the shop.
-/// </summary>
 [HarmonyPatch(typeof(NMerchantRoom), nameof(NMerchantRoom._Ready))]
 public static class ShopUIPatch
 {
@@ -20,12 +20,12 @@ public static class ShopUIPatch
     {
         try
         {
-            var config = ModConfig.Load();
+            DialogueSessionCache.ClearAll();
 
+            var config = ModConfig.Load();
             var dialogueBtn = new DialogueButton(config.Language);
             __instance.AddChild(dialogueBtn);
 
-            // Position at the top of the shop
             dialogueBtn.AnchorLeft = 0.5f;
             dialogueBtn.AnchorTop = 0f;
             dialogueBtn.AnchorRight = 0.5f;
@@ -41,10 +41,25 @@ public static class ShopUIPatch
         catch (Exception ex) { Log.Warn($"[AIDialogueMod] ShopUIPatch failed: {ex.Message}"); }
     }
 
+    private static Player? GetPlayer()
+    {
+        try
+        {
+            var cm = CombatManager.Instance;
+            if (cm == null) return null;
+            var state = cm.DebugOnlyGetState();
+            if (state == null) return null;
+            return state.GetCreaturesOnSide(CombatSide.Player)?.FirstOrDefault()?.Player;
+        }
+        catch { return null; }
+    }
+
     private static void OnDialoguePressed(ModConfig config)
     {
         try
         {
+            if (DialogueSessionCache.IsPanelOpen) return;
+
             if (!config.IsConfigured)
             {
                 (Engine.GetMainLoop() as SceneTree)?.Root.AddChild(new ConfigPanel(config));
@@ -52,29 +67,67 @@ public static class ShopUIPatch
             }
 
             string merchantName = config.Language == "en" ? "Merchant" : "商人";
+            var player = GetPlayer();
+            int playerHp = player?.Creature?.CurrentHp ?? 50;
+            int playerMaxHp = player?.Creature?.MaxHp ?? 80;
+            int playerGold = player?.Gold ?? 100;
 
-            var manager = new DialogueManager(config);
+            string sessionKey = "shop_merchant";
+            var (manager, isNew) = DialogueSessionCache.GetOrCreate(sessionKey, config);
+
+            manager.ClearEventHandlers();
+
             var panel = new DialoguePanel();
             (Engine.GetMainLoop() as SceneTree)?.Root.AddChild(panel);
             panel.Initialize(merchantName, DialogueManager.MaxRounds);
 
             var executor = new ActionExecutor(manager.StolenCards);
+            DialogueSessionCache.MarkPanelOpen();
 
             panel.OnPlayerSubmit += async (text) =>
             {
                 panel.AddPlayerMessage(text);
                 panel.SetInputEnabled(false);
                 panel.ShowTypingIndicator();
-                await manager.SendPlayerMessage(text, playerHp: 50, playerGold: 100);
+                var p = GetPlayer();
+                await manager.SendPlayerMessage(text, p?.Creature?.CurrentHp ?? playerHp, p?.Gold ?? playerGold);
             };
 
-            panel.OnAbandon += () => { manager.AbandonDialogue(); executor.OnEventEnd(config.Language); panel.Close(); };
-            manager.OnNpcMessage += (dialogue, emotion) => { panel.AddNpcMessage(dialogue, emotion); panel.SetRound(manager.CurrentRound); panel.SetInputEnabled(true); };
-            manager.OnActionsExecuted += (actions) => { foreach (var n in executor.Execute(actions, config.Language)) panel.AddActionNotification(n); };
-            manager.OnWaitingForAI += () => { panel.ShowTypingIndicator(); panel.SetInputEnabled(false); };
-            manager.OnConversationEnded += () => { executor.OnEventEnd(config.Language); panel.SetInputEnabled(false); };
+            panel.OnAbandon += () =>
+            {
+                manager.AbandonDialogue();
+                executor.OnEventEnd(config.Language);
+                DialogueSessionCache.MarkPanelClosed();
+                panel.Close();
+            };
 
-            _ = manager.StartDialogue(merchantName, CharacterType.Merchant, config.Language, 50, 80, 100, "Merchant Shop");
+            manager.OnNpcMessage += (dialogue, emotion) =>
+            {
+                panel.AddNpcMessage(dialogue, emotion);
+                panel.SetRound(manager.CurrentRound);
+                panel.SetInputEnabled(true);
+            };
+            manager.OnReplayPlayerMessage += (text) => panel.AddPlayerMessage(text);
+            manager.OnActionsExecuted += (actions) =>
+            {
+                foreach (var n in executor.Execute(actions, config.Language))
+                    panel.AddActionNotification(n);
+            };
+            manager.OnWaitingForAI += () => { panel.ShowTypingIndicator(); panel.SetInputEnabled(false); };
+            manager.OnConversationEnded += () =>
+            {
+                executor.OnEventEnd(config.Language);
+                panel.SetInputEnabled(false);
+                DialogueSessionCache.MarkPanelClosed();
+            };
+
+            if (isNew)
+                _ = manager.StartDialogue(merchantName, CharacterType.Merchant, config.Language, playerHp, playerMaxHp, playerGold, "Merchant Shop");
+            else
+            {
+                panel.SetRound(manager.CurrentRound);
+                manager.ResumeDialogue();
+            }
         }
         catch (Exception ex) { Log.Warn($"[AIDialogueMod] Shop OnDialoguePressed failed: {ex.Message}"); }
     }

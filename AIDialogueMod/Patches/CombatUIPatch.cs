@@ -14,9 +14,6 @@ using AIDialogueMod.UI;
 
 namespace AIDialogueMod.Patches;
 
-/// <summary>
-/// Patches NCombatUi.Activate to inject a "Talk" button next to the End Turn button.
-/// </summary>
 [HarmonyPatch(typeof(NCombatUi), nameof(NCombatUi.Activate))]
 public static class CombatUIPatch
 {
@@ -24,12 +21,13 @@ public static class CombatUIPatch
     {
         try
         {
-            var config = ModConfig.Load();
+            // Clear old sessions when entering a new combat
+            DialogueSessionCache.ClearAll();
 
+            var config = ModConfig.Load();
             var dialogueBtn = new DialogueButton(config.Language);
             __instance.AddChild(dialogueBtn);
 
-            // Position near the end-turn button area (bottom-right)
             dialogueBtn.AnchorLeft = 1f;
             dialogueBtn.AnchorTop = 1f;
             dialogueBtn.AnchorRight = 1f;
@@ -52,14 +50,14 @@ public static class CombatUIPatch
     {
         try
         {
+            if (DialogueSessionCache.IsPanelOpen) return;
+
             if (!config.IsConfigured)
             {
-                var sceneTree = Engine.GetMainLoop() as SceneTree;
-                sceneTree?.Root.AddChild(new ConfigPanel(config));
+                (Engine.GetMainLoop() as SceneTree)?.Root.AddChild(new ConfigPanel(config));
                 return;
             }
 
-            // Get player and enemy info from CombatState
             var players = state.GetCreaturesOnSide(CombatSide.Player);
             var enemies = state.GetCreaturesOnSide(CombatSide.Enemy);
             var player = players?.FirstOrDefault()?.Player;
@@ -71,16 +69,20 @@ public static class CombatUIPatch
             string enemyName = mainEnemy?.Name ?? "Unknown Enemy";
             string enemyInfo = mainEnemy != null ? $"HP {mainEnemy.CurrentHp}/{mainEnemy.MaxHp}" : "Unknown";
 
-            // Determine character type
             CharacterType charType = CharacterType.Normal;
-            // TODO: Detect elite/boss from encounter model if available
 
-            var manager = new DialogueManager(config);
+            string sessionKey = $"combat_{enemyName}";
+            var (manager, isNew) = DialogueSessionCache.GetOrCreate(sessionKey, config);
+
+            // Clear old event handlers from previous panel before re-subscribing
+            manager.ClearEventHandlers();
+
             var panel = new DialoguePanel();
             (Engine.GetMainLoop() as SceneTree)?.Root.AddChild(panel);
             panel.Initialize(enemyName, DialogueManager.MaxRounds);
 
             var executor = new ActionExecutor(manager.StolenCards);
+            DialogueSessionCache.MarkPanelOpen();
 
             panel.OnPlayerSubmit += async (text) =>
             {
@@ -92,13 +94,44 @@ public static class CombatUIPatch
                 await manager.SendPlayerMessage(text, currentHp, currentGold);
             };
 
-            panel.OnAbandon += () => { manager.AbandonDialogue(); executor.OnEventEnd(config.Language); panel.Close(); };
-            manager.OnNpcMessage += (dialogue, emotion) => { panel.AddNpcMessage(dialogue, emotion); panel.SetRound(manager.CurrentRound); panel.SetInputEnabled(true); };
-            manager.OnActionsExecuted += (actions) => { foreach (var n in executor.Execute(actions, config.Language)) panel.AddActionNotification(n); };
-            manager.OnWaitingForAI += () => { panel.ShowTypingIndicator(); panel.SetInputEnabled(false); };
-            manager.OnConversationEnded += () => { executor.OnEventEnd(config.Language); panel.SetInputEnabled(false); };
+            panel.OnAbandon += () =>
+            {
+                manager.AbandonDialogue();
+                executor.OnEventEnd(config.Language);
+                DialogueSessionCache.MarkPanelClosed();
+                panel.Close();
+            };
 
-            _ = manager.StartDialogue(enemyName, charType, config.Language, playerHp, playerMaxHp, playerGold, enemyInfo);
+            manager.OnNpcMessage += (dialogue, emotion) =>
+            {
+                panel.AddNpcMessage(dialogue, emotion);
+                panel.SetRound(manager.CurrentRound);
+                panel.SetInputEnabled(true);
+            };
+            manager.OnReplayPlayerMessage += (text) => panel.AddPlayerMessage(text);
+            manager.OnActionsExecuted += (actions) =>
+            {
+                foreach (var n in executor.Execute(actions, config.Language))
+                    panel.AddActionNotification(n);
+            };
+            manager.OnWaitingForAI += () => { panel.ShowTypingIndicator(); panel.SetInputEnabled(false); };
+            manager.OnConversationEnded += () =>
+            {
+                executor.OnEventEnd(config.Language);
+                panel.SetInputEnabled(false);
+                DialogueSessionCache.MarkPanelClosed();
+            };
+
+            if (isNew)
+            {
+                _ = manager.StartDialogue(enemyName, charType, config.Language, playerHp, playerMaxHp, playerGold, enemyInfo);
+            }
+            else
+            {
+                // Resume existing session — replay history
+                panel.SetRound(manager.CurrentRound);
+                manager.ResumeDialogue();
+            }
         }
         catch (Exception ex) { Log.Warn($"[AIDialogueMod] OnDialoguePressed failed: {ex.Message}"); }
     }

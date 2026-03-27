@@ -33,10 +33,24 @@ public class DialogueManager
     public List<PersonalityType> CurrentPersonalities => _currentPersonalities;
     public StolenCardManager StolenCards => _stolenCardManager;
 
+    /// <summary>Whether this manager has been started at least once (has context).</summary>
+    public bool HasStarted => _conversationHistory.Count > 0;
+
     public event Action<string, string>? OnNpcMessage;
     public event Action<List<GameAction>>? OnActionsExecuted;
     public event Action? OnConversationEnded;
     public event Action? OnWaitingForAI;
+    public event Action<string>? OnReplayPlayerMessage;
+
+    /// <summary>Clear all event handlers (call before re-subscribing from a new panel).</summary>
+    public void ClearEventHandlers()
+    {
+        OnNpcMessage = null;
+        OnActionsExecuted = null;
+        OnConversationEnded = null;
+        OnWaitingForAI = null;
+        OnReplayPlayerMessage = null;
+    }
 
     public DialogueManager(ModConfig config)
     {
@@ -73,6 +87,36 @@ public class DialogueManager
             Log.Warn($"[AIDialogueMod] StartDialogue failed: {ex.Message}");
             EndConversation();
         }
+    }
+
+    /// <summary>
+    /// Resume a previously started dialogue. Re-emits the last NPC message
+    /// so the new panel shows the conversation state, then waits for player input.
+    /// </summary>
+    public void ResumeDialogue()
+    {
+        if (State == DialogueState.Ended)
+        {
+            // Already ended — just notify
+            OnConversationEnded?.Invoke();
+            return;
+        }
+        // Re-emit all previous messages for the new panel
+        for (int i = 0; i < _conversationHistory.Count; i++)
+        {
+            var msg = _conversationHistory[i];
+            if (msg.Role == "user" && i > 0) // skip the opening prompt (index 0)
+            {
+                // Extract just the player text from the wrapped prompt
+                OnReplayPlayerMessage?.Invoke(msg.Content);
+            }
+            else if (msg.Role == "assistant")
+            {
+                var parsed = ResponseParser.Parse(msg.Content);
+                OnNpcMessage?.Invoke(parsed.Dialogue, parsed.Emotion);
+            }
+        }
+        State = DialogueState.WaitingForPlayer;
     }
 
     public async Task SendPlayerMessage(string message, int playerHp, int playerGold)

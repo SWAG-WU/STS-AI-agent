@@ -15,6 +15,55 @@ public class ActionExecutor
 {
     private readonly StolenCardManager _stolenCardManager;
 
+    /// <summary>
+    /// Registry mapping buff/debuff string IDs to a function that applies the power.
+    /// Each entry is: (buffId) -> Action(creature, stacks) that calls PowerCmd.Apply.
+    /// </summary>
+    private static readonly Dictionary<string, Action<Creature, int>> PowerRegistry = new(StringComparer.OrdinalIgnoreCase)
+    {
+        // Buffs
+        ["strength"]      = (c, s) => _ = PowerCmd.Apply<StrengthPower>(c, s, c, null, false),
+        ["dexterity"]     = (c, s) => _ = PowerCmd.Apply<DexterityPower>(c, s, c, null, false),
+        ["artifact"]      = (c, s) => _ = PowerCmd.Apply<ArtifactPower>(c, s, c, null, false),
+        ["regen"]         = (c, s) => _ = PowerCmd.Apply<RegenPower>(c, s, c, null, false),
+        ["thorns"]        = (c, s) => _ = PowerCmd.Apply<ThornsPower>(c, s, c, null, false),
+        ["vigor"]         = (c, s) => _ = PowerCmd.Apply<VigorPower>(c, s, c, null, false),
+        ["plating"]       = (c, s) => _ = PowerCmd.Apply<PlatingPower>(c, s, c, null, false),
+        ["intangible"]    = (c, s) => _ = PowerCmd.Apply<IntangiblePower>(c, s, c, null, false),
+        ["barricade"]     = (c, s) => _ = PowerCmd.Apply<BarricadePower>(c, s, c, null, false),
+        ["ritual"]        = (c, s) => _ = PowerCmd.Apply<RitualPower>(c, s, c, null, false),
+        ["rage"]          = (c, s) => _ = PowerCmd.Apply<RagePower>(c, s, c, null, false),
+        ["enrage"]        = (c, s) => _ = PowerCmd.Apply<EnragePower>(c, s, c, null, false),
+        ["focus"]         = (c, s) => _ = PowerCmd.Apply<FocusPower>(c, s, c, null, false),
+        ["buffer"]        = (c, s) => _ = PowerCmd.Apply<BufferPower>(c, s, c, null, false),
+
+        // Debuffs
+        ["vulnerable"]    = (c, s) => _ = PowerCmd.Apply<VulnerablePower>(c, s, c, null, false),
+        ["weak"]          = (c, s) => _ = PowerCmd.Apply<WeakPower>(c, s, c, null, false),
+        ["frail"]         = (c, s) => _ = PowerCmd.Apply<FrailPower>(c, s, c, null, false),
+        ["poison"]        = (c, s) => _ = PowerCmd.Apply<PoisonPower>(c, s, c, null, false),
+        ["constrict"]     = (c, s) => _ = PowerCmd.Apply<ConstrictPower>(c, s, c, null, false),
+        ["slow"]          = (c, s) => _ = PowerCmd.Apply<SlowPower>(c, s, c, null, false),
+        ["no_draw"]       = (c, s) => _ = PowerCmd.Apply<NoDrawPower>(c, s, c, null, false),
+        ["no_block"]      = (c, s) => _ = PowerCmd.Apply<NoBlockPower>(c, s, c, null, false),
+        ["hex"]           = (c, s) => _ = PowerCmd.Apply<HexPower>(c, s, c, null, false),
+        ["confused"]      = (c, s) => _ = PowerCmd.Apply<ConfusedPower>(c, s, c, null, false),
+    };
+
+    /// <summary>Chinese display names for known power IDs.</summary>
+    private static readonly Dictionary<string, string> PowerNamesCN = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["strength"] = "力量", ["dexterity"] = "敏捷", ["artifact"] = "人工制品",
+        ["regen"] = "再生", ["thorns"] = "荆棘", ["vigor"] = "活力",
+        ["plating"] = "甲板", ["intangible"] = "无实体", ["barricade"] = "壁垒",
+        ["ritual"] = "仪式", ["rage"] = "愤怒", ["enrage"] = "暴怒",
+        ["focus"] = "集中", ["buffer"] = "缓冲",
+        ["vulnerable"] = "易伤", ["weak"] = "虚弱", ["frail"] = "脆弱",
+        ["poison"] = "中毒", ["constrict"] = "缠绕", ["slow"] = "减速",
+        ["no_draw"] = "禁止抽牌", ["no_block"] = "禁止格挡", ["hex"] = "诅咒",
+        ["confused"] = "混乱",
+    };
+
     public ActionExecutor(StolenCardManager stolenCardManager)
     {
         _stolenCardManager = stolenCardManager;
@@ -78,10 +127,10 @@ public class ActionExecutor
             ActionType.ModifyPlayerGold => ExecuteModifyPlayerGold(action, isChinese),
             ActionType.ModifyEnemyStrength => ExecuteModifyEnemyStrength(action, isChinese),
             ActionType.ModifyEnemyHp => ExecuteModifyEnemyHp(action, isChinese),
-            ActionType.AddPlayerBuff => FormatBuff(action, true, true, isChinese),
-            ActionType.AddPlayerDebuff => FormatBuff(action, true, false, isChinese),
-            ActionType.AddEnemyBuff => FormatBuff(action, false, true, isChinese),
-            ActionType.AddEnemyDebuff => FormatBuff(action, false, false, isChinese),
+            ActionType.AddPlayerBuff => ExecutePower(action, isPlayer: true, isBuff: true, isChinese),
+            ActionType.AddPlayerDebuff => ExecutePower(action, isPlayer: true, isBuff: false, isChinese),
+            ActionType.AddEnemyBuff => ExecutePower(action, isPlayer: false, isBuff: true, isChinese),
+            ActionType.AddEnemyDebuff => ExecutePower(action, isPlayer: false, isBuff: false, isChinese),
             ActionType.GiveCard => FormatGiveCard(action, isChinese),
             ActionType.DestroyCard => FormatDestroyCard(action, isChinese),
             ActionType.StealCard => FormatStealCard(action, isChinese),
@@ -109,7 +158,6 @@ public class ActionExecutor
                 else if (a.Value < 0)
                 {
                     int damage = -a.Value;
-                    // Clamp: don't kill the player
                     int maxDamage = player.Creature.CurrentHp - 1;
                     if (damage > maxDamage) damage = maxDamage;
                     if (damage > 0)
@@ -142,7 +190,7 @@ public class ActionExecutor
                 else if (a.Value < 0)
                 {
                     int loss = -a.Value;
-                    if (loss > player.Gold) loss = player.Gold; // Don't go negative
+                    if (loss > player.Gold) loss = player.Gold;
                     if (loss > 0)
                     {
                         _ = PlayerCmd.LoseGold(loss, player, default);
@@ -165,8 +213,6 @@ public class ActionExecutor
             var enemy = GetMainEnemy();
             if (enemy != null)
             {
-                // Apply StrengthPower to enemy
-                var strengthPower = new StrengthPower();
                 _ = PowerCmd.Apply<StrengthPower>(enemy, a.Value, enemy, null, false);
                 Log.Warn($"[AIDialogueMod] Enemy strength modified by {a.Value}");
             }
@@ -210,16 +256,43 @@ public class ActionExecutor
             : (zh ? $"怪物受到了 {-a.Value} 点伤害" : $"Enemy took {-a.Value} damage");
     }
 
-    private string FormatBuff(GameAction a, bool isPlayer, bool isBuff, bool zh)
+    /// <summary>
+    /// Apply a buff or debuff using the game's native PowerCmd system.
+    /// Maps buff_id/debuff_id strings to real Power types.
+    /// </summary>
+    private string ExecutePower(GameAction a, bool isPlayer, bool isBuff, bool zh)
     {
         string id = isBuff ? (a.BuffId ?? "unknown") : (a.DebuffId ?? "unknown");
-        string target = isPlayer ? (zh ? "玩家" : "Player") : (zh ? "怪物" : "Enemy");
-        string effect = isBuff ? (zh ? "增益" : "buff") : (zh ? "减益" : "debuff");
-        string dur = FormatDuration(a.Duration, zh);
-        // Note: Buff/debuff application requires specific PowerModel types which vary per buff.
-        // For now we log and show notification. Full implementation needs a buff registry.
-        Log.Warn($"[AIDialogueMod] {(isBuff ? "Buff" : "Debuff")} {id} x{a.Stacks} on {(isPlayer ? "player" : "enemy")}");
-        return zh ? $"{target}获得{effect}：{id} x{a.Stacks}（{dur}）" : $"{target} gained {effect}: {id} x{a.Stacks} ({dur})";
+        int stacks = Math.Max(1, a.Stacks);
+        string targetLabel = isPlayer ? (zh ? "玩家" : "Player") : (zh ? "怪物" : "Enemy");
+        string effectLabel = isBuff ? (zh ? "增益" : "buff") : (zh ? "减益" : "debuff");
+        string displayName = PowerNamesCN.TryGetValue(id, out var cn) && zh ? cn : id;
+
+        try
+        {
+            Creature? target = isPlayer ? GetPlayer()?.Creature : GetMainEnemy();
+            if (target != null && PowerRegistry.TryGetValue(id, out var applyPower))
+            {
+                applyPower(target, stacks);
+                Log.Warn($"[AIDialogueMod] Applied {id} x{stacks} to {(isPlayer ? "player" : "enemy")}");
+            }
+            else if (target == null)
+            {
+                Log.Warn($"[AIDialogueMod] Cannot apply {id}: target not found");
+            }
+            else
+            {
+                Log.Warn($"[AIDialogueMod] Unknown power ID: {id}, skipping application");
+            }
+        }
+        catch (Exception ex)
+        {
+            Log.Warn($"[AIDialogueMod] ExecutePower failed for {id}: {ex.Message}");
+        }
+
+        return zh
+            ? $"{targetLabel}获得{effectLabel}：{displayName} x{stacks}"
+            : $"{targetLabel} gained {effectLabel}: {id} x{stacks}";
     }
 
     private string FormatGiveCard(GameAction a, bool zh) => zh ? $"获得卡牌：{a.CardId ?? "unknown"}" : $"Received card: {a.CardId ?? "unknown"}";
@@ -240,15 +313,6 @@ public class ActionExecutor
     }
 
     private string FormatGiveRelic(GameAction a, bool zh) => zh ? $"获得遗物：{a.RelicId ?? "unknown"}" : $"Received relic: {a.RelicId ?? "unknown"}";
-
-    private static string FormatDuration(string duration, bool zh)
-    {
-        if (duration == "combat") return zh ? "本场战斗" : "this combat";
-        if (duration == "permanent") return zh ? "永久" : "permanent";
-        if (duration.StartsWith("turns:") && int.TryParse(duration[6..], out int turns))
-            return zh ? $"{turns}回合" : $"{turns} turns";
-        return duration;
-    }
 
     public List<string> OnEventEnd(string language)
     {
