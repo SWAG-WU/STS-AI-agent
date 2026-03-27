@@ -1,7 +1,10 @@
 {
-    "pck_name": "AIDialogueMod",
+    "id": "AIDialogueMod",
     "name": "AI Dialogue Mod",
     "author": "ModAuthor",
     "description": "Talk your way through events! AI-powered dialogue with monsters and NPCs that affects gameplay in real-time.",
-    "version": "0.1.0"
+    "version": "0.1.0",
+    "has_dll": true,
+    "has_pck": false,
+    "affects_gameplay": true
 }
