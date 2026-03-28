@@ -1,29 +1,27 @@
 using System.Collections.Generic;
+using MegaCrit.Sts2.Core.Models;
 
 namespace AIDialogueMod.Actions;
 
 public class StolenCardManager
 {
-    private readonly List<string> _stolenCards = new();
+    private readonly List<CardModel> _stolenCards = new();
 
-    public void StealCard(string cardId)
+    public void StealCard(CardModel card)
     {
-        _stolenCards.Add(cardId);
+        _stolenCards.Add(card);
     }
 
-    public void ReturnCard(string cardId)
+    public List<CardModel> GetStolenCards() => new(_stolenCards);
+
+    public void RemoveCard(CardModel card)
     {
-        _stolenCards.Remove(cardId);
+        _stolenCards.Remove(card);
     }
 
-    public List<string> GetStolenCards()
+    public List<CardModel> ClearAndReturnAll()
     {
-        return new List<string>(_stolenCards);
-    }
-
-    public List<string> ClearAndReturnAll()
-    {
-        var cards = new List<string>(_stolenCards);
+        var cards = new List<CardModel>(_stolenCards);
         _stolenCards.Clear();
         return cards;
     }

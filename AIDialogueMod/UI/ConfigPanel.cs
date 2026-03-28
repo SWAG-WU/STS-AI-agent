@@ -42,8 +42,10 @@ public partial class ConfigPanel : CanvasLayer
         _providerOption = new OptionButton();
         _providerOption.AddItem("Claude", 0);
         _providerOption.AddItem("GPT (OpenAI)", 1);
-        _providerOption.AddItem("Custom", 2);
-        _providerOption.Selected = _config.Provider switch { "claude" => 0, "gpt" => 1, _ => 2 };
+        _providerOption.AddItem("智谱 (ZhiPu GLM)", 2);
+        _providerOption.AddItem("Custom", 3);
+        _providerOption.Selected = _config.Provider switch { "claude" => 0, "gpt" => 1, "zhipu" => 2, _ => 3 };
+        _providerOption.ItemSelected += OnProviderChanged;
         vbox.AddChild(_providerOption);
 
         vbox.AddChild(CreateLabel("API Key:"));
@@ -88,9 +90,41 @@ public partial class ConfigPanel : CanvasLayer
         return label;
     }
 
+    private void OnProviderChanged(long index)
+    {
+        // Auto-fill URL and model when switching providers
+        switch (index)
+        {
+            case 0: // Claude
+                _apiUrlInput.Text = "";
+                _modelInput.Text = "";
+                _apiUrlInput.PlaceholderText = "https://api.anthropic.com/v1/messages";
+                _modelInput.PlaceholderText = "claude-sonnet-4-20250514";
+                break;
+            case 1: // GPT
+                _apiUrlInput.Text = "";
+                _modelInput.Text = "";
+                _apiUrlInput.PlaceholderText = "https://api.openai.com/v1/chat/completions";
+                _modelInput.PlaceholderText = "gpt-4o";
+                break;
+            case 2: // ZhiPu
+                _apiUrlInput.Text = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+                _modelInput.Text = "glm-4-flash";
+                _apiUrlInput.PlaceholderText = "https://open.bigmodel.cn/api/paas/v4/chat/completions";
+                _modelInput.PlaceholderText = "glm-4-flash";
+                break;
+            case 3: // Custom
+                _apiUrlInput.Text = "";
+                _modelInput.Text = "";
+                _apiUrlInput.PlaceholderText = "https://api.example.com/v1/chat/completions";
+                _modelInput.PlaceholderText = "model-name";
+                break;
+        }
+    }
+
     private void OnSavePressed()
     {
-        _config.Provider = _providerOption.Selected switch { 0 => "claude", 1 => "gpt", _ => "custom" };
+        _config.Provider = _providerOption.Selected switch { 0 => "claude", 1 => "gpt", 2 => "zhipu", _ => "custom" };
         _config.ApiKey = _apiKeyInput.Text.Trim();
         _config.ApiUrl = _apiUrlInput.Text.Trim();
         _config.Model = _modelInput.Text.Trim();

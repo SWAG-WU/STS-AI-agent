@@ -14,6 +14,7 @@ public enum ActionType
     DestroyCard,
     StealCard,
     ReturnCard,
+    TransformCard,
     GiveRelic,
     SkipEvent,
     ShopDiscount,

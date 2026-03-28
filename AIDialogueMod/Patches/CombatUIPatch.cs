@@ -102,6 +102,12 @@ public static class CombatUIPatch
                 panel.Close();
             };
 
+            panel.OnTempClose += () =>
+            {
+                DialogueSessionCache.MarkPanelClosed();
+                panel.Close();
+            };
+
             manager.OnNpcMessage += (dialogue, emotion) =>
             {
                 panel.AddNpcMessage(dialogue, emotion);

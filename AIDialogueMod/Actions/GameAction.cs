@@ -47,6 +47,7 @@ public class GameAction
             "destroy_card" => ActionType.DestroyCard,
             "steal_card" => ActionType.StealCard,
             "return_card" => ActionType.ReturnCard,
+            "transform_card" => ActionType.TransformCard,
             "give_relic" => ActionType.GiveRelic,
             "skip_event" => ActionType.SkipEvent,
             "shop_discount" => ActionType.ShopDiscount,

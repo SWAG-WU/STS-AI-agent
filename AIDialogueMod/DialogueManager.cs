@@ -27,6 +27,7 @@ public class DialogueManager
     private List<ChatMessage> _conversationHistory = new();
     private List<PersonalityType> _currentPersonalities = new();
     private int _currentRound;
+    private bool _inCombat;
 
     public DialogueState State { get; private set; } = DialogueState.Idle;
     public int CurrentRound => _currentRound;
@@ -67,11 +68,13 @@ public class DialogueManager
         try
         {
             _currentRound = 0;
+            _inCombat = characterType is CharacterType.Normal or CharacterType.Elite or CharacterType.Boss;
             _conversationHistory = new List<ChatMessage>();
             _currentPersonalities = _personalityGenerator.Generate(characterType);
             _systemPrompt = _promptBuilder.BuildSystemPrompt(
                 characterName, characterType, _currentPersonalities,
-                language, playerHp, playerMaxHp, playerGold, enemyInfo);
+                language, playerHp, playerMaxHp, playerGold, enemyInfo,
+                ActionExecutor.CardModificationsRemaining);
 
             State = DialogueState.WaitingForAI;
             OnWaitingForAI?.Invoke();
@@ -167,7 +170,7 @@ public class DialogueManager
 
         bool isEnding = response.EndConversation || _currentRound >= MaxRounds;
         var validatedActions = ActionValidator.Validate(
-            response.Actions, _currentPersonalities, isEnding, playerHp, playerGold);
+            response.Actions, _currentPersonalities, isEnding, playerHp, playerGold, _inCombat);
 
         OnNpcMessage?.Invoke(response.Dialogue, response.Emotion);
         if (validatedActions.Count > 0) OnActionsExecuted?.Invoke(validatedActions);

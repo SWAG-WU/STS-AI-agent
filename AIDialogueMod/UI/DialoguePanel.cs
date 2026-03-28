@@ -19,6 +19,7 @@ public partial class DialoguePanel : CanvasLayer
 
     public event System.Action<string>? OnPlayerSubmit;
     public event System.Action? OnAbandon;
+    public event System.Action? OnTempClose;
 
     public DialoguePanel() { Layer = 100; }
 
@@ -80,6 +81,10 @@ public partial class DialoguePanel : CanvasLayer
         _abandonButton = new Button { Text = "放弃" };
         _abandonButton.Pressed += OnAbandonPressed;
         inputHBox.AddChild(_abandonButton);
+
+        var tempCloseButton = new Button { Text = "临时关闭" };
+        tempCloseButton.Pressed += OnTempClosePressed;
+        inputHBox.AddChild(tempCloseButton);
 
         mainVBox.AddChild(inputHBox);
         panelContainer.AddChild(mainVBox);
@@ -150,6 +155,7 @@ public partial class DialoguePanel : CanvasLayer
     }
 
     private void OnAbandonPressed() => OnAbandon?.Invoke();
+    private void OnTempClosePressed() => OnTempClose?.Invoke();
 
     private void ScrollToBottom() => CallDeferred(nameof(DeferredScrollToBottom));
 

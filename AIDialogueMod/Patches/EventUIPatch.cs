@@ -8,6 +8,7 @@ using MegaCrit.Sts2.Core.Entities.Players;
 using MegaCrit.Sts2.Core.Events;
 using MegaCrit.Sts2.Core.Logging;
 using MegaCrit.Sts2.Core.Nodes.Events;
+using MegaCrit.Sts2.Core.Runs;
 using AIDialogueMod.Actions;
 using AIDialogueMod.Config;
 using AIDialogueMod.Personality;
@@ -48,13 +49,19 @@ public static class EventUIPatch
     {
         try
         {
-            var cm = CombatManager.Instance;
-            if (cm == null) return null;
-            var state = cm.DebugOnlyGetState();
-            if (state == null) return null;
-            return state.GetCreaturesOnSide(CombatSide.Player)?.FirstOrDefault()?.Player;
+            var runState = RunManager.Instance?.DebugOnlyGetState();
+            if (runState != null)
+                return runState.Players?.FirstOrDefault();
         }
-        catch { return null; }
+        catch { }
+        try
+        {
+            var state = CombatManager.Instance?.DebugOnlyGetState();
+            if (state != null)
+                return state.GetCreaturesOnSide(CombatSide.Player)?.FirstOrDefault()?.Player;
+        }
+        catch { }
+        return null;
     }
 
     private static void OnDialoguePressed(ModConfig config)
@@ -100,6 +107,12 @@ public static class EventUIPatch
             {
                 manager.AbandonDialogue();
                 executor.OnEventEnd(config.Language);
+                DialogueSessionCache.MarkPanelClosed();
+                panel.Close();
+            };
+
+            panel.OnTempClose += () =>
+            {
                 DialogueSessionCache.MarkPanelClosed();
                 panel.Close();
             };
